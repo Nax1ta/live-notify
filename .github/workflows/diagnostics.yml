@@ -1,0 +1,30 @@
+name: preflight
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 写入配置
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: printf '%s\n' "$ENV_FILE" > .env
+
+      - name: 网络与 SMTP 诊断（只登录，不发送邮件）
+        run: python diagnose.py
+
+      - name: 全流程预检（真实检测所有直播间，只打印不发送）
+        run: python poll_notify.py --dry-run

@@ -1,0 +1,73 @@
+name: bilibili-live-poll-notify
+
+on:
+  schedule:
+    # 每 5 分钟检查一次直播间状态（双保险之一；即使失效，自续链也能维持运转）
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: poll-notify
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 写入配置
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: printf '%s\n' "$ENV_FILE" > .env
+
+      - name: 轮询检测（开播则发邮件）
+        run: python poll_notify.py
+
+      - name: 保存监控状态
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state.json
+          if git diff --cached --quiet; then
+            echo "状态无变化，无需提交"
+          else
+            git commit -m "chore: 更新监控状态"
+            git push
+          fi
+
+  # 自续链：无论检查成功与否，约 5 分钟后调度下一轮。
+  # workflow_dispatch 已被手动触发反复验证可用，因此本链条不依赖 schedule 定时器。
+  self_trigger:
+    runs-on: ubuntu-latest
+    needs: check
+    if: always()
+    steps:
+      - name: 等待约 5 分钟后调度下一轮
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 240
+          for i in 1 2 3; do
+            if gh workflow run poll-notify.yml --ref main; then
+              echo "✅ 已调度下一轮（自续链运转中）"
+              exit 0
+            fi
+            echo "调度失败，10 秒后重试 ($i/3)"
+            sleep 10
+          done
+          echo "❌ 连续调度失败，请检查仓库 Actions 权限（需 actions: write）"
+          exit 1
