@@ -62,7 +62,7 @@ jobs:
         run: |
           sleep 240
           for i in 1 2 3; do
-            if gh workflow run poll-notify.yml --ref main; then
+            if gh workflow run poll-notify.yml --repo "$GITHUB_REPOSITORY" --ref main; then
               echo "✅ 已调度下一轮（自续链运转中）"
               exit 0
             fi
